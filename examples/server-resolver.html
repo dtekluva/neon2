@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NEON RUSH · server-authoritative outcomes</title>
+<style>
+  body{margin:0; min-height:100vh; background:radial-gradient(120% 90% at 50% 0%, #2a0a52, #160033 40%, #070014); font-family:system-ui,sans-serif; color:#fff;
+    display:flex; flex-direction:column; align-items:center; gap:16px; padding:30px 14px}
+  h1{font-size:18px; letter-spacing:1px; opacity:.9} p{opacity:.7; max-width:680px; text-align:center; font-size:13px; line-height:1.6}
+  code{background:#0006; padding:1px 5px; border-radius:4px; color:#9ff}
+  #log{font:12px monospace; color:#9ff; background:#0008; border:1px solid #0ff7ff44; border-radius:8px; padding:10px; width:min(94vw,880px); height:130px; overflow:auto}
+</style>
+</head>
+<body>
+  <h1>Server-authoritative outcomes</h1>
+  <p>The reels are <b>dumb</b> here — they only animate to whatever the backend returns. The component calls
+  <code>el.resolveSpin(bet)</code> (and optionally <code>el.resolveRisk()</code>); your server decides the result and the win.
+  Below, <code>fakeBackend()</code> stands in for your real API call.</p>
+
+  <neon-slot balance="500" bet="25" currency="USD-DEMO"></neon-slot>
+  <div id="log"></div>
+
+  <script src="../neon-slot.js"></script>
+  <script>
+    const el = document.querySelector('neon-slot');
+    el.setAttribute('three-src', '../three.min.js');
+    const log = (m) => { const d = document.getElementById('log'); d.innerHTML += m + '<br>'; d.scrollTop = d.scrollHeight; };
+
+    // --- pretend this is POST /api/spin on your server (the ONLY place outcomes are decided) ---
+    async function fakeBackend(bet) {
+      // simulate latency
+      await new Promise(r => setTimeout(r, 250));
+      // server-side RNG / house edge logic lives here:
+      const reels = Array.from({ length: 4 }, () => Math.floor(Math.random() * 6));
+      // server also computes the authoritative win (here we just let the client payout table run by omitting `win`)
+      return { reels };
+    }
+
+    // wire the component to your backend:
+    el.resolveSpin = async (bet) => {
+      log('→ POST /api/spin  {bet:' + bet + '}');
+      const res = await fakeBackend(bet);
+      log('← ' + JSON.stringify(res));
+      return res;                  // { reels:[i,i,i,i], win?:number }
+    };
+
+    // (optional) make the RISK gamble server-authoritative too:
+    el.resolveRisk = async (phase, pot) => {
+      await new Promise(r => setTimeout(r, 120));
+      const won = Math.random() < 0.5;       // your server decides
+      log('⚄ risk @phase ' + phase + ' → ' + (won ? 'WON' : 'LOST'));
+      return { won };
+    };
+
+    ['win','bank','bust','balancechange'].forEach(ev =>
+      el.addEventListener(ev, e => log('• ' + ev + ' ' + JSON.stringify(e.detail))));
+  </script>
+</body>
+</html>
