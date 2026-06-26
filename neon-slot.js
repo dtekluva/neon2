@@ -38,7 +38,7 @@
     return '';
   })();
   const SELF_DIR = SELF_SRC ? SELF_SRC.replace(/[?#].*$/, '').replace(/[^/]*$/, '') : '';
-  const VERSION = "1.0.2";
+  const VERSION = "1.0.3";
 
   /* ----------------------------- defaults ----------------------------- */
   const DEFAULTS = {
@@ -121,8 +121,10 @@
   .cell{height:var(--cell); display:flex; align-items:center; justify-content:center; font-size:42px; filter:drop-shadow(0 0 11px currentColor)}
   .payline{position:absolute; top:50%; left:6px; right:6px; height:var(--cell); transform:translateY(-50%);
     border:2px solid var(--gold); border-radius:9px; box-shadow:0 0 18px rgba(255,216,77,.45),inset 0 0 18px rgba(255,216,77,.16); z-index:4; pointer-events:none; opacity:.5}
-  .reel.win{animation:nf .45s ease 3}
+  .reel.win{animation:nf .45s ease infinite}
   @keyframes nf{50%{box-shadow:inset 0 0 0 3px var(--green),0 0 28px var(--green)}}
+  .reel.lose{animation:nl .45s ease infinite}
+  @keyframes nl{50%{box-shadow:inset 0 0 0 3px var(--red),0 0 28px var(--red)}}
   .reels-host canvas{display:block; width:100%; height:calc(var(--cell)*3.4); border-radius:18px; background:#05000f;
     border:1px solid rgba(0,247,255,.3)}
 
@@ -220,12 +222,16 @@
         }, dur * 1000);
       });
     }
-    function flashWin(results, sym) {
+    function flashWin(results, sym, ms) {
       results.forEach((s, i) => { if (s === sym) reels[i].classList.add('win'); });
-      setTimeout(() => reels.forEach(r => r.classList.remove('win')), 1600);
+      setTimeout(() => reels.forEach(r => r.classList.remove('win')), ms || 1500);
+    }
+    function flashLose(results, ms) {
+      reels.forEach(r => r.classList.add('lose'));
+      setTimeout(() => reels.forEach(r => r.classList.remove('lose')), ms || 1500);
     }
     idle();
-    return { spinTo, flashWin, resize() {}, destroy() { host.innerHTML = ''; } };
+    return { spinTo, flashWin, flashLose, freeze() {}, resize() {}, destroy() { host.innerHTML = ''; } };
   }
 
   /* ====================================================================
@@ -291,15 +297,15 @@
     }
     const ro = new ResizeObserver(fit); ro.observe(host); fit();
 
-    let raf = 0, last = performance.now(), shakeT = 0;
+    let raf = 0, last = performance.now(), shakeT = 0, frozenUntil = 0;
     function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
     function loop(now) {
       raf = requestAnimationFrame(loop); const dt = Math.min(.05, (now - last) / 1000); last = now;
       groups.forEach(g => {
         const u = g.userData;
         if (u.spinning) { const t = Math.min(1, (now / 1000 - u.t0) / u.dur); g.rotation.x = u.from + (u.target - u.from) * easeOutCubic(t);
-          if (t >= 1) { u.spinning = false; u.onStop && u.onStop(); } }
-        else g.rotation.x += dt * .05;
+          if (t >= 1) { u.spinning = false; g.rotation.x = u.target; u.onStop && u.onStop(); } }
+        // when not spinning the drum holds perfectly still (no idle drift) so all reels stay aligned
       });
       if (shakeT > 0) { shakeT -= dt; scene.position.x = (Math.random() - .5) * .2 * shakeT * 6; } else scene.position.x = 0;
       rend.render(scene, cam);
@@ -318,11 +324,24 @@
         u.onStop = () => { clearInterval(ti); beep(ctx.sound(), 180 + r * 60, .12, 'square', .18); onReelStop && onReelStop(r); if (++stopped === results.length) setTimeout(onDone, 250); };
       });
     }
-    function flashWin(results, sym) {
-      groups.forEach((g, i) => { if (results[i] === sym) { g.userData.planes[0].material.emissiveIntensity = 1.5; setTimeout(() => g.userData.planes[0].material.emissiveIntensity = .6, 1400); } });
+    function pulse(plane, hex, ms) {        // flash a plane's glow to a colour for ~ms, then restore
+      const mat = plane.material, oE = mat.emissive.getHex(), oI = mat.emissiveIntensity;
+      const period = 190, total = Math.max(2, Math.round((ms || 1500) / period));
+      let n = 0; const iv = setInterval(() => {
+        const on = n % 2 === 0;
+        mat.emissive.setHex(on ? hex : oE); mat.emissiveIntensity = on ? 1.8 : oI;
+        if (++n >= total) { clearInterval(iv); mat.emissive.setHex(oE); mat.emissiveIntensity = oI; }
+      }, period);
+    }
+    function flashWin(results, sym, ms) {   // matching reels flash GREEN
+      groups.forEach((g, i) => { if (results[i] === sym) pulse(g.userData.planes[0], 0x39ff9c, ms); });
       shakeT = .4;
     }
-    return { spinTo, flashWin, resize: fit, destroy() { cancelAnimationFrame(raf); ro.disconnect(); rend.dispose(); host.innerHTML = ''; } };
+    function flashLose(results, ms) {       // all reels flash RED
+      groups.forEach(g => pulse(g.userData.planes[0], 0xff4d6d, ms));
+    }
+    function freeze(ms) { frozenUntil = performance.now() + ms; }
+    return { spinTo, flashWin, flashLose, freeze, resize: fit, destroy() { cancelAnimationFrame(raf); ro.disconnect(); rend.dispose(); host.innerHTML = ''; } };
   }
 
   /* ====================================================================
@@ -507,16 +526,20 @@
       this._pendingWinOverride = null;
       this._emit('result', { reels: results, count, symbol: sym, win: base });
 
+      const WIN_FREEZE = 3000, LOSE_FREEZE = 2000;   // drums hold still & flash before anything else
+      const on = this._cfg.sound && !this._state.muted;
       if (base > 0) {
-        this._engine.flashWin(results, sym);
+        this._engine.flashWin(results, sym, WIN_FREEZE); if (this._engine.freeze) this._engine.freeze(WIN_FREEZE);
         this._burst(count >= 4 ? 150 : 80, this._cfg.symbols[sym].color);
-        beep(this._cfg.sound && !this._state.muted, 880, .1); setTimeout(() => beep(this._cfg.sound && !this._state.muted, 1180, .12), 110);
+        beep(on, 880, .1); setTimeout(() => beep(on, 1180, .12), 110);
         if (count >= 4) { this._shake(); this._toast('MEGA LINE', this._cfg.symbols[sym].color); } else this._toast(count + ' MATCH · +' + base, this._cfg.symbols[sym].color);
         this._emit('win', { amount: base, count, symbol: sym });
-        this._startGamble(base);
+        setTimeout(() => this._startGamble(base), WIN_FREEZE);   // 3s flash before the gamble opens
       } else {
-        this._toast('NO LINE', '#9aa'); beep(this._cfg.sound && !this._state.muted, 160, .15, 'sawtooth', .1);
-        this._emit('noresult', { reels: results }); this._endSpin();
+        if (this._engine.flashLose) this._engine.flashLose(results, LOSE_FREEZE); if (this._engine.freeze) this._engine.freeze(LOSE_FREEZE);
+        this._toast('NO LINE', '#ff4d6d'); beep(on, 160, .15, 'sawtooth', .1);
+        this._emit('noresult', { reels: results });
+        setTimeout(() => this._endSpin(), LOSE_FREEZE);          // flash before re-enabling spin
       }
     }
 
