@@ -38,7 +38,7 @@
     return '';
   })();
   const SELF_DIR = SELF_SRC ? SELF_SRC.replace(/[?#].*$/, '').replace(/[^/]*$/, '') : '';
-  const VERSION = "1.0.5";
+  const VERSION = "1.0.6";
 
   /* ----------------------------- defaults ----------------------------- */
   const DEFAULTS = {
@@ -82,7 +82,7 @@
     box-shadow:0 0 0 2px rgba(255,43,214,.2), 0 24px 60px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.1), 0 0 50px rgba(155,91,255,.28)}
   .glow{position:absolute; top:-30%; left:50%; transform:translateX(-50%); width:55%; height:60%; border-radius:50%;
     background:radial-gradient(circle at 50% 60%, #ff8a3d, var(--pink) 55%, transparent 72%); filter:blur(8px); opacity:.35; pointer-events:none}
-  .fx{position:absolute; inset:0; pointer-events:none; z-index:6}
+  .fx{position:absolute; inset:0; pointer-events:none; z-index:9}
 
   .topbar{display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; position:relative; z-index:2}
   .logo{font-weight:900; font-size:24px; letter-spacing:3px; line-height:1; font-family:"Trebuchet MS",sans-serif;
@@ -552,9 +552,10 @@
       const on = this._cfg.sound && !this._state.muted;
       if (base > 0) {
         this._engine.flashWin(results, sym, WIN_FREEZE); if (this._engine.freeze) this._engine.freeze(WIN_FREEZE);
-        this._burst(count >= 4 ? 150 : 80, this._cfg.symbols[sym].color);
+        this._coinBurst(base, count >= 4 ? 4 : count >= 3 ? 3 : 2);   // gold coins — bigger win & more matches = bigger, more aggressive burst
         beep(on, 880, .1); setTimeout(() => beep(on, 1180, .12), 110);
-        if (count >= 4) { this._shake(); this._toast('MEGA LINE', this._cfg.symbols[sym].color); } else this._toast(count + ' MATCH · +' + base, this._cfg.symbols[sym].color);
+        if (count >= 4) { this._toast('MEGA LINE', this._cfg.symbols[sym].color); setTimeout(() => beep(on, 1480, .12), 220); }
+        else this._toast(count + ' MATCH · +' + base, this._cfg.symbols[sym].color);
         this._emit('win', { amount: base, count, symbol: sym });
         setTimeout(() => this._startGamble(base), WIN_FREEZE);   // 3s flash before the gamble opens
       } else {
@@ -585,10 +586,10 @@
         this._el.risk.disabled = false; const won = !!(r && r.won);
         if (won) {
           this._state.phase++; this._state.pot = Math.round(this._state.pot * 2);
-          this._burst(70, this._state.phase >= this._maxPhase() ? '#ffd84d' : '#39ff9c'); beep(!muted, 1000, .1); setTimeout(() => beep(!muted, 1400, .12), 100); this._shake();
+          this._coinBurst(this._state.pot, this._state.phase >= 3 ? 4 : this._state.phase >= 2 ? 3 : 2); beep(!muted, 1000, .1); setTimeout(() => beep(!muted, 1400, .12), 100);   // climb shower intensifies with the phase
           this._emit('risk', { won: true, phase: this._state.phase, pot: this._state.pot });
           this._emit('phasechange', { phase: this._state.phase, pot: this._state.pot });
-          if (this._state.phase >= this._cfg.phaseNames.length - 1) { this._toast('BONUS PHASE!', '#ffd84d'); this._burst(200, '#ffd84d'); }
+          if (this._state.phase >= this._cfg.phaseNames.length - 1) { this._toast('BONUS PHASE!', '#ffd84d'); this._coinBurst(this._state.pot, 4); }
           this._updateGamble();
         } else {
           this._state.pot = 0; this._lightLadder(-1); this._el.gwin.textContent = '0'; this._el.gphase.textContent = 'BUSTED';
@@ -602,7 +603,7 @@
       if (!this._el.gamble.classList.contains('show')) return;
       const muted = !(this._cfg.sound && !this._state.muted);
       this._state.balance += this._state.pot; this._state.lastWin = this._state.pot; this._el.lastwin.textContent = this._state.pot;
-      this._toast('BANKED +' + this._state.pot, '#39ff9c'); this._burst(120, '#39ff9c');
+      this._toast('BANKED +' + this._state.pot, '#39ff9c'); this._coinBurst(this._state.pot, this._state.pot >= 400 ? 4 : this._state.pot >= 120 ? 3 : 2);   // coin shower when you collect
       beep(!muted, 700, .08); setTimeout(() => beep(!muted, 1050, .1), 90); setTimeout(() => beep(!muted, 1400, .12), 180);
       this._el.gamble.classList.remove('show'); this._renderHUD();
       this._emit('bank', { amount: this._state.pot }); this._emit('balancechange', { balance: this._state.balance });
@@ -619,17 +620,50 @@
       const loop = () => {
         this._fxRaf = requestAnimationFrame(loop);
         ctx.clearRect(0, 0, cv.width, cv.height);
-        for (const p of this._parts) { p.vy += .18; p.x += p.vx; p.y += p.vy; p.life -= .018;
-          ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.color; ctx.shadowBlur = 12; ctx.shadowColor = p.color;
-          ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, 7); ctx.fill(); }
-        ctx.globalAlpha = 1; ctx.shadowBlur = 0; this._parts = this._parts.filter(p => p.life > 0);
+        for (const p of this._parts) {
+          p.vy += (p.g == null ? .18 : p.g); p.x += p.vx; p.y += p.vy; p.life -= (p.decay == null ? .018 : p.decay);
+          const al = Math.max(0, p.life);
+          if (p.type === 'coin') {                       // spinning gold coin
+            p.rot += p.vr; const r = p.size, flip = Math.abs(Math.cos(p.rot));
+            ctx.save(); ctx.translate(p.x, p.y); ctx.scale(Math.max(.16, flip), 1); ctx.globalAlpha = al;
+            ctx.shadowBlur = 10; ctx.shadowColor = 'rgba(255,193,0,.85)'; ctx.fillStyle = '#ffd23f';
+            ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill();
+            ctx.shadowBlur = 0; ctx.lineWidth = Math.max(1, r * .22); ctx.strokeStyle = '#a86a06';
+            ctx.beginPath(); ctx.arc(0, 0, r * .84, 0, 7); ctx.stroke();
+            ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.beginPath(); ctx.arc(-r * .28, -r * .3, r * .22, 0, 7); ctx.fill();
+            ctx.restore();
+          } else {                                       // generic spark
+            ctx.globalAlpha = al; ctx.fillStyle = p.color; ctx.shadowBlur = 12; ctx.shadowColor = p.color;
+            ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, 7); ctx.fill();
+          }
+        }
+        ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+        this._parts = this._parts.filter(p => p.life > 0 && p.y < cv.height + 60);
       };
       loop();
     }
     _burst(n, color) {
       const cv = this._el.fx, cx = cv.width / 2, cy = cv.height * 0.5;
       for (let i = 0; i < n; i++) { const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 8;
-        this._parts.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 3, life: 1, color, size: 2 + Math.random() * 3.5 }); }
+        this._parts.push({ type: 'spark', x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 3, life: 1, color, size: 2 + Math.random() * 3.5 }); }
+    }
+    /* gold coin shower — count scales with the win amount; tier (2|3|4) escalates launch, spread & shake */
+    _coinBurst(amount, tier) {
+      const cv = this._el.fx;
+      const P = ({ 2: { cm: .5, sm: .7, spm: .7, shake: false },
+                   3: { cm: 1, sm: 1, spm: 1, shake: true },
+                   4: { cm: 1.7, sm: 1.35, spm: 1.25, shake: true } })[tier] || { cm: 1, sm: 1, spm: 1, shake: true };
+      const amt = Math.max(0, amount | 0), n = Math.min(240, Math.round((12 + amt / 4) * P.cm));
+      const GRAV = .40, POWER = 9, SPREAD = Math.PI / 2, SMAX = 8;
+      const cx = cv.width / 2, cy = cv.height * 0.52;
+      for (let i = 0; i < n; i++) {
+        const a = -Math.PI / 2 + (Math.random() - .5) * SPREAD * P.spm, sp = POWER * P.sm * (.55 + Math.random() * .7);
+        this._parts.push({ type: 'coin', x: cx + (Math.random() - .5) * 46, y: cy,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - Math.random() * POWER * .4 * P.sm,
+          g: GRAV, life: 1, decay: .010 + Math.random() * .004,
+          size: SMAX * .5 + Math.random() * SMAX * .5, rot: Math.random() * Math.PI, vr: (Math.random() - .5) * .5 });
+      }
+      if (P.shake) this._shake();
     }
   }
 
