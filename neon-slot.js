@@ -38,7 +38,7 @@
     return '';
   })();
   const SELF_DIR = SELF_SRC ? SELF_SRC.replace(/[?#].*$/, '').replace(/[^/]*$/, '') : '';
-  const VERSION = "1.0.1";
+  const VERSION = "1.0.2";
 
   /* ----------------------------- defaults ----------------------------- */
   const DEFAULTS = {
@@ -259,7 +259,7 @@
     }
     const TEX = ctx.config.symbols.map((_, i) => tex(i));
     const groups = [];
-    const xs = []; const spread = 2.3; for (let i = 0; i < n; i++) xs.push((i - (n - 1) / 2) * spread);
+    const xs = []; const spread = 1.8; for (let i = 0; i < n; i++) xs.push((i - (n - 1) / 2) * spread);
     xs.forEach(px => {
       const grp = new THREE.Group(); grp.position.x = px; const planes = [];
       for (let k = 0; k < NS; k++) {
@@ -272,12 +272,16 @@
       grp.userData = { planes: planes, spinning: false, from: 0, target: 0, t0: 0, dur: 0, onStop: null };
       scene.add(grp); groups.push(grp);
     });
-    // single neon divider rails between & around the reels (static — never cover a face)
-    [xs[0] - spread / 2].concat(xs.map(px => px + spread / 2)).forEach(dx => {
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 3.2, 0.1),
-        new THREE.MeshStandardMaterial({ color: 0x1a0040, emissive: 0xff2bd6, emissiveIntensity: .5, metalness: .7, roughness: .3 }));
-      rail.position.set(dx, 0, R); scene.add(rail);
-    });
+    // neon ring sitting in the SPACE between adjacent reels — same radius as the drums,
+    // oriented perpendicular to the spin axis so it acts like a divider/cover between
+    // one rotating component and the next.
+    for (let i = 0; i < xs.length - 1; i++) {
+      const mx = (xs[i] + xs[i + 1]) / 2;
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(R + 0.1, 0.12, 18, 60),
+        new THREE.MeshStandardMaterial({ color: 0x1a0040, emissive: 0xff2bd6, emissiveIntensity: .65, metalness: .7, roughness: .3 }));
+      ring.rotation.y = Math.PI / 2;          // ring plane ⟂ to the spin axis (X)
+      ring.position.set(mx, 0, 0); scene.add(ring);
+    }
 
     function fit() {
       const w = host.clientWidth || 600, h = cv.clientHeight || 260;
