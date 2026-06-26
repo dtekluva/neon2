@@ -38,7 +38,7 @@
     return '';
   })();
   const SELF_DIR = SELF_SRC ? SELF_SRC.replace(/[?#].*$/, '').replace(/[^/]*$/, '') : '';
-  const VERSION = "1.0.4";
+  const VERSION = "1.0.5";
 
   /* ----------------------------- defaults ----------------------------- */
   const DEFAULTS = {
@@ -249,42 +249,32 @@
   function ThreeReels(host, ctx, THREE) {
     const n = ctx.config.reels, NS = 8, R = 1.9, STEP = Math.PI * 2 / NS;
     const cv = document.createElement('canvas'); host.appendChild(cv);
-    const scene = new THREE.Scene(); scene.fog = new THREE.FogExp2(0x140033, 0.03);
+    const scene = new THREE.Scene(); scene.fog = new THREE.FogExp2(0x03000c, 0.012);
     const cam = new THREE.PerspectiveCamera(55, 2, 0.1, 100);
     const rend = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true });
     rend.setPixelRatio(Math.min(devicePixelRatio, 2));
     scene.add(new THREE.AmbientLight(0x4422aa, .65));
     [[0x0ff7ff, -6, 4, 8], [0xff2bd6, 6, -3, 8], [0xffd84d, 0, 6, 4]].forEach(([c, x, y, z]) => { const l = new THREE.PointLight(c, 1.3, 40); l.position.set(x, y, z); scene.add(l); });
 
-    /* ---------- synthwave environment ---------- */
-    // gradient sky
+    /* ---------- deep-space backdrop + starfield (no ground) ---------- */
+    // subtle dark gradient so it reads as space, not flat black
     (function () {
       const c = document.createElement('canvas'); c.width = 4; c.height = 256; const x = c.getContext('2d');
       const g = x.createLinearGradient(0, 0, 0, 256);
-      g.addColorStop(0, '#0a0124'); g.addColorStop(.5, '#22064d'); g.addColorStop(.68, '#5a0f63'); g.addColorStop(.76, '#160233'); g.addColorStop(1, '#08001a');
+      g.addColorStop(0, '#05010f'); g.addColorStop(.55, '#0a0420'); g.addColorStop(1, '#02000a');
       x.fillStyle = g; x.fillRect(0, 0, 4, 256);
       scene.background = new THREE.CanvasTexture(c);
     })();
-    // retro sun (radial glow with horizontal slats), behind the reels
-    (function () {
-      const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
-      const g = x.createRadialGradient(128, 118, 8, 128, 128, 128);
-      g.addColorStop(0, '#fff1c4'); g.addColorStop(.38, '#ffb13d'); g.addColorStop(.72, '#ff2bd6'); g.addColorStop(1, 'rgba(255,43,214,0)');
-      x.fillStyle = g; x.beginPath(); x.arc(128, 128, 128, 0, 7); x.fill();
-      x.globalCompositeOperation = 'destination-out';
-      for (let i = 0; i < 7; i++) x.fillRect(0, 138 + i * 15, 256, 4 + i);
-      const sun = new THREE.Mesh(new THREE.PlaneGeometry(12, 12),
-        new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, fog: false }));
-      sun.position.set(0, 0.6, -13); scene.add(sun);
-    })();
-    // neon grid floor (scrolls toward camera in the loop)
-    const grid = new THREE.GridHelper(120, 120, 0x0ff7ff, 0xff2bd6);
-    grid.material.transparent = true; grid.material.opacity = .5; grid.position.y = -3.3; scene.add(grid);
-    // starfield
-    const starGeo = new THREE.BufferGeometry(); const SN = 160; const sp = new Float32Array(SN * 3);
-    for (let i = 0; i < SN; i++) { sp[i * 3] = (Math.random() - .5) * 44; sp[i * 3 + 1] = Math.random() * 16 - 1; sp[i * 3 + 2] = -8 - Math.random() * 18; }
-    starGeo.setAttribute('position', new THREE.BufferAttribute(sp, 3));
-    const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0x9fe8ff, size: .09, transparent: true, opacity: .85, fog: false }));
+    // starfield — two layers (far dim + near bright) wrapped around the view
+    const stars = new THREE.Group();
+    function starLayer(count, size, opacity, color, spread, depthMin, depthRange) {
+      const g = new THREE.BufferGeometry(), a = new Float32Array(count * 3);
+      for (let i = 0; i < count; i++) { a[i * 3] = (Math.random() - .5) * spread; a[i * 3 + 1] = (Math.random() - .5) * spread * .72; a[i * 3 + 2] = -depthMin - Math.random() * depthRange; }
+      g.setAttribute('position', new THREE.BufferAttribute(a, 3));
+      return new THREE.Points(g, new THREE.PointsMaterial({ color, size, transparent: true, opacity, fog: false }));
+    }
+    stars.add(starLayer(440, .08, .6, 0x9fb8ff, 95, 6, 55));   // far, dim
+    stars.add(starLayer(150, .14, .95, 0xffffff, 72, 5, 38));  // near, bright
     scene.add(stars);
 
     function tex(i) {
@@ -338,7 +328,6 @@
           if (t >= 1) { u.spinning = false; g.rotation.x = u.target; u.onStop && u.onStop(); } }
         // when not spinning the drum holds perfectly still (no idle drift) so all reels stay aligned
       });
-      grid.position.z = (now * 0.0011) % 2;              // scroll the floor toward the camera
       stars.rotation.y = now * 0.00002;                   // slow drift
       if (shakeT > 0) { shakeT -= dt; scene.position.x = (Math.random() - .5) * .2 * shakeT * 6; } else scene.position.x = 0;
       rend.render(scene, cam);

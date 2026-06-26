@@ -1,6 +1,6 @@
 {
   "name": "neon-slot",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "NEON RUSH — embeddable neon slot-machine Web Component (<neon-slot>). Zero-dependency, Shadow-DOM isolated, server-authoritative outcomes.",
   "main": "neon-slot.js",
   "module": "neon-slot.js",
