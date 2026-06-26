@@ -38,7 +38,7 @@
     return '';
   })();
   const SELF_DIR = SELF_SRC ? SELF_SRC.replace(/[?#].*$/, '').replace(/[^/]*$/, '') : '';
-  const VERSION = "1.0.0";
+  const VERSION = "1.0.1";
 
   /* ----------------------------- defaults ----------------------------- */
   const DEFAULTS = {
@@ -269,11 +269,14 @@
         const th = k * STEP; m.position.set(0, R * Math.sin(th), R * Math.cos(th)); m.rotation.x = -th; m.userData = { mat: m.material };
         grp.add(m); planes.push(m);
       }
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(R + .22, .15, 16, 44),
-        new THREE.MeshStandardMaterial({ color: 0x1a0040, emissive: 0xff2bd6, emissiveIntensity: .5, metalness: .8, roughness: .3 }));
-      ring.rotation.y = Math.PI / 2; grp.add(ring);
       grp.userData = { planes: planes, spinning: false, from: 0, target: 0, t0: 0, dur: 0, onStop: null };
       scene.add(grp); groups.push(grp);
+    });
+    // single neon divider rails between & around the reels (static — never cover a face)
+    [xs[0] - spread / 2].concat(xs.map(px => px + spread / 2)).forEach(dx => {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 3.2, 0.1),
+        new THREE.MeshStandardMaterial({ color: 0x1a0040, emissive: 0xff2bd6, emissiveIntensity: .5, metalness: .7, roughness: .3 }));
+      rail.position.set(dx, 0, R); scene.add(rail);
     });
 
     function fit() {
